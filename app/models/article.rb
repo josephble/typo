@@ -119,7 +119,24 @@ class Article < Content
 
       eval(list_function.join('.'))
     end
+  end
 
+  def merge_with(other_article_id)        
+    @other_article = Article.find(other_article_id)
+    return false unless @other_article != nil
+    
+    # Merging body text
+    self.body = self.body + @other_article.body
+    
+    # Merging comments
+    self.comments << @other_article.comments
+    
+    # Saving changes
+    self.save!
+
+    # Prevent error when cached association occurs by reloading the article then deleting
+    Article.find(other_article_id).destroy
+      return true
   end
 
   def year_url

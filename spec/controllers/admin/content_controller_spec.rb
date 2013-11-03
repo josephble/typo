@@ -671,4 +671,118 @@ describe Admin::ContentController do
 
     end
   end
+
+#--------------------------------------------------------------------------------------------
+
+  describe 'article merging action' do
+    describe 'as a non-admin user' do
+      before do
+        Factory(:blog)
+        @user = Factory(:user, :text_filter => Factory(:markdown), :profile => Factory(:profile_publisher))
+        @article = Factory(:article, :user => @user)
+        request.session = {:user => @user.id}
+      end
+
+      it 'should redirect to index even if the request is good' do
+        post :merge, :article_id => 1, :merge_with => 2
+        response.should redirect_to(:action => 'index')
+        flash[:notice].should be_blank
+        flash[:error].should contain('Error, you are not allowed to perform this action.')
+      end
+
+      it 'should not be able to view the merge button' do
+        get :edit, 'id' => @article.id
+
+        response.should render_template('new')
+        assigns(:article).should_not be_nil
+        assigns(:article).should be_valid
+
+        response.should contain(/body/)
+        response.should_not contain(/Merge Articles/)
+        response.should_not contain(/Article ID/)
+      end
+    end
+
+    describe 'with administrator user' do
+      before do
+        Factory(:blog)
+        Profile.delete_all
+        @user = Factory(:user, :text_filter => Factory(:markdown), :profile => Factory(:profile_admin, :label => Profile::ADMIN))
+        @user.editor = 'simple'
+        @user.save
+        
+        @article1 = Factory(:article, :id => 1, :author=>"user1", :title=>"Title of 1st Article", :body=> "Text of 1st Article")
+        @article2 = Factory(:article, :id => 2, :author=>"user2", :title=>"Title of 2nd Article", :body=> "Text of 2nd Article")
+
+        request.session = { :user => @user.id }
+      end
+
+      it 'should be able to see the merge form' do
+        get :edit, :id => @article1.id
+
+        response.should render_template('new')
+        assigns(:article).should_not be_nil
+        assigns(:article).should be_valid
+
+        response.should contain(/body/)
+        response.should contain(/Merge Articles/)
+        response.should contain(/Article ID/)                        
+      end
+
+      it 'combine articles' do
+        Article.count.should be == 2
+        post :merge, :article_id => @article1.id, :merge_with => @article2.id
+        response.should redirect_to(:action => 'index')                        
+        flash[:notice].should contain('The articles were successfully merged.')
+        Article.count.should be == 1
+      end
+
+      it 'should contain the text of both articles' do
+        combined_text = @article1.body + @article2.body
+        
+        post :merge, :article_id => @article1.id, :merge_with => @article2.id
+        response.should redirect_to(:action => 'index')
+        
+          assert_response :redirect, :action => 'show', :id => @article1.id
+
+          article = @article1.reload
+          article.body == combined_text
+      end
+
+      it 'comments should be contained in the new merged article' do                        
+        @comment1 = Factory(:comment, :article_id => @article1.id)
+        @comment2 = Factory(:comment, :article_id => @article2.id)
+
+        new_point = @article1.id
+        old_point = @article2.id
+
+        post :merge, :article_id => @article1.id, :merge_with => @article2.id
+        response.should redirect_to(:action => 'index')        
+
+        comment1 = @comment1.reload
+        comment2 = @comment2.reload
+
+        comment1.article_id.should == new_point
+        comment2.article_id.should == new_point                        
+      end
+
+      it 'should have one author' do
+        post :merge, :article_id => @article1.id, :merge_with => @article2.id
+        response.should redirect_to(:action => 'index')
+          article = @article1.reload
+          article.author.should contain "user1"                        
+          article.author.should_not contain "user2"
+      end
+
+      it 'should have one title' do
+        post :merge, :article_id => @article1.id, :merge_with => @article2.id
+        response.should redirect_to(:action => 'index')
+          article = @article1.reload
+          article.title.should contain "Title of 1st Article"                        
+          article.title.should_not contain "Title of 2nd Article"
+      end
+    end        
+  end
+
 end
+
